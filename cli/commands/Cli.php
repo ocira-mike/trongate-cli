@@ -13,6 +13,7 @@ require_once __DIR__ . '/Serve.php';
 require_once __DIR__ . '/Info.php';
 require_once __DIR__ . '/Create.php';
 require_once __DIR__ . '/Learn.php';
+require_once __DIR__ . '/Check.php';
 
 final class Cli
 {
@@ -45,6 +46,10 @@ final class Cli
             case 'logo':
                 Logo::render();
                 return 0;
+            
+            case 'check':
+                Logo::render();
+                return (new Check())->run();
 
             case 'version':
             case '--version':
