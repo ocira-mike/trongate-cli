@@ -1,36 +1,92 @@
-#!/usr/bin/env php
 <?php
 
+/**
+ * Trongate CLI
+ *
+ * Application entry point.
+ *
+ * Handles environment validation, framework configuration loading,
+ * and command execution.
+ *
+ * @package TrongateCLI
+ */
+
+// Prevent execution through a web browser.
 if (PHP_SAPI !== 'cli') {
     http_response_code(404);
     exit;
 }
 
+// Ensure the required PHP version is installed.
 if (PHP_VERSION_ID < 80000) {
-    fwrite(STDERR, "Trongate v2 requires PHP 8.0 or newer (running " . PHP_VERSION . ").\n");
+    fwrite(
+        STDERR,
+        "Trongate v2 requires PHP 8.0 or newer (running " . PHP_VERSION . ").\n"
+    );
     exit(1);
 }
 
-require_once __DIR__ . '/config/config.php';
+// Get the requested command. Default to help.
+$command = $argv[1] ?? 'help';
 
-if (!defined('ENV')) {
-    fwrite(STDERR, "Configuration error: ENV is not defined.\n");
-    exit(1);
+// Commands available without a framework installation.
+$standaloneCommands = [
+    'install',
+    'check',
+    'help',
+    '--help',
+    '-h',
+    'version',
+    '--version',
+    '-V',
+    'logo',
+];
+
+// Load framework configuration for framework-dependent commands.
+if (!in_array($command, $standaloneCommands, true)) {
+
+    $configFile = __DIR__ . '/config/config.php';
+
+    if (!is_file($configFile)) {
+        fwrite(
+            STDERR,
+            "Trongate Framework is not installed.\n" .
+            "Run 'php trongate install' to install the framework.\n"
+        );
+        exit(1);
+    }
+
+    require_once $configFile;
+
+    if (!defined('ENV')) {
+        fwrite(STDERR, "Configuration error: ENV is not defined.\n");
+        exit(1);
+    }
+
+    // Restrict CLI operations to the development environment.
+    if (ENV !== 'dev') {
+        fwrite(
+            STDERR,
+            "Trongate CLI is disabled outside the Development environment.\n"
+        );
+        exit(1);
+    }
 }
 
-if (ENV !== 'dev') {
-    fwrite(STDERR, "Trongate CLI is disabled outside the Development environment.\n");
-    exit(1);
-}
-
+// Load the command dispatcher.
 require_once __DIR__ . '/cli/commands/Cli.php';
 
+// Execute the requested command.
 try {
-    exit(Cli::run($argv ?? []));
+    exit(Cli::run($argv));
 } catch (Throwable $e) {
+
     fwrite(STDERR, "Error: " . $e->getMessage() . "\n");
+
+    // Show the stack trace when debugging is enabled.
     if (getenv('CLI_DEBUG')) {
         fwrite(STDERR, $e->getTraceAsString() . "\n");
     }
+
     exit(1);
 }
