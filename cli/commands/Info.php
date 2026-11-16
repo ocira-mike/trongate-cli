@@ -9,7 +9,7 @@
 
 final class Info
 {
-    public const CLI_VERSION = '0.6.0';
+    public const CLI_VERSION = '0.7.0';
     private const LINE_WIDTH = 100;
 
     /**
