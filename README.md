@@ -6,6 +6,7 @@ A lightweight command-line toolkit for [Trongateframework](https://trongateframe
 
 ```bash
 php trongate                    # Show available commands
+php trongate install            # Install trongate framework or trongate on ice
 php trongate info               # Inspect the current project
 php trongate learn              # Interactive 20-chapter learning guide
 php trongate create:crud blog   # Generate controller + model + views from the `blog` table
