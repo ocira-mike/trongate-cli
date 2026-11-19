@@ -57,6 +57,7 @@ PHP 8.0 or newer (CLI)
 A Trongate v2 project (config/, engine/, modules/, public/)
 ENV set to 'dev' in config/config.php. The CLI refuses to run in any other environment.
 For create:crud: MySQL or MariaDB, and the pdo_mysql extension
+Git for installation Trongate framework or php zip
 ```
 
 ## Installation
