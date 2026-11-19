@@ -130,8 +130,8 @@ General:
 Examples:
   php trongate serve 127.0.0.1 8000
   php trongate create:module blog
-  php trongate create:controller blog post     # -> modules/blog/post/Post.php
-  php trongate create:model blog post
+  php trongate create:controller blog blog     # -> modules/blog/Blog.php
+  php trongate create:model blog blog
   php trongate create:view blog posts/index
   php trongate create:crud blog
   php trongate create:crud blog --public
