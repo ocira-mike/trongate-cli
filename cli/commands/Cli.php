@@ -29,6 +29,11 @@ final class Cli
         $arguments = array_slice($argv, 2);
 
         switch ($command) {
+
+            case 'install':
+                require_once __DIR__ . '/Install.php';
+                return (new Install())->handle($arguments);
+                
             case 'serve':
                 (new Serve())->handle($arguments); // exits with the server's code
                 return 0;
@@ -135,3 +140,4 @@ Examples:
 TXT;
     }
 }
+
