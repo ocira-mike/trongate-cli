@@ -15,14 +15,12 @@
  *   php trongate install --framework=trongate-on-ice
  *   php trongate install --framework=trongate@master --base-url=http://127.0.0.1:8000/
  *
- * Requirements: PHP 8.0+, ZipArchive, and cURL or allow_url_fopen.
- * Git is optional. When available, it is used first unless --sha256 is supplied.
  */
 
 declare(strict_types=1);
 
 
-const TI_VERSION = '0.5.6';
+const TI_VERSION = '0.5.7';
 
 const EXIT_OK = 0;
 const EXIT_ERROR = 1;
@@ -512,7 +510,7 @@ final class FrameworkRegistry
 
 final class Preflight
 {
-    public function check(): array
+    public function check(bool $requireZip = false): array
     {
         $issues = [];
 
@@ -520,23 +518,48 @@ final class Preflight
             $issues[] = 'PHP 8.0 or newer is required; found ' . PHP_VERSION . '.';
         }
 
-        if (!class_exists(ZipArchive::class)) {
-            $issues[] = "The PHP 'zip' extension is required.";
+        $zipAvailable = class_exists(ZipArchive::class);
+        $gitAvailable = $this->gitAvailable();
+
+        if (!$zipAvailable && ($requireZip || !$gitAvailable)) {
+            $issues[] = $requireZip
+                ? "The PHP 'zip' extension is required when --sha256 is used."
+                : "The PHP 'zip' extension is required when Git is unavailable.";
         }
 
-        if (!extension_loaded('curl') && !filter_var(ini_get('allow_url_fopen'), FILTER_VALIDATE_BOOLEAN)) {
+        if (
+            !extension_loaded('curl')
+            && !filter_var(ini_get('allow_url_fopen'), FILTER_VALIDATE_BOOLEAN)
+        ) {
             $issues[] = 'Enable cURL or allow_url_fopen to download the framework.';
+        }
+
+        if (!extension_loaded('pdo_mysql')) {
+            $issues[] = "The PHP 'pdo_mysql' extension is required to configure and create the MySQL/MariaDB database.";
         }
 
         if (!function_exists('token_get_all')) {
             $issues[] = 'The PHP tokenizer is required.';
         }
 
+        return $issues;
+    }
+
+    /**
+     * Detect Git without making it a mandatory dependency.
+     */
+    private function gitAvailable(): bool
+    {
         if (!function_exists('exec')) {
-            // ZIP mode still works without exec, but Git and CLI syntax checks will not.
+            return false;
         }
 
-        return $issues;
+        $output = [];
+        $code = 1;
+
+        @exec('git --version 2>&1', $output, $code);
+
+        return $code === 0;
     }
 }
 
@@ -726,12 +749,39 @@ final class Downloader
             ],
         ]);
 
-        $data = @file_get_contents($url, false, $context);
-        $statusLine = $http_response_header[0] ?? '';
+        // Use a stream resource so response headers can be read from its metadata.
+        // This avoids relying on PHP's legacy HTTP response-header variable.
+        $stream = @fopen($url, 'rb', false, $context);
+
+        if ($stream === false) {
+            throw new InstallException(
+                'Unable to download the framework archive.',
+                EXIT_NETWORK
+            );
+        }
+
+        $metadata = stream_get_meta_data($stream);
+        $responseHeaders = $metadata['wrapper_data'] ?? [];
+        $statusLine = '';
+
+        // Redirects can produce multiple HTTP status lines. Keep the final one.
+        if (is_array($responseHeaders)) {
+            foreach ($responseHeaders as $headerLine) {
+                if (
+                    is_string($headerLine)
+                    && preg_match('/^HTTP\/\S+\s+(\d{3})\b/i', $headerLine)
+                ) {
+                    $statusLine = $headerLine;
+                }
+            }
+        }
+
+        $data = stream_get_contents($stream);
+        fclose($stream);
 
         if ($data === false) {
             throw new InstallException(
-                'Unable to download the framework archive.',
+                'Unable to read the downloaded framework archive.',
                 EXIT_NETWORK
             );
         }
@@ -760,6 +810,46 @@ final class Downloader
 
 final class FileSystem
 {
+    /**
+     * Replace a file safely on Unix-like systems and Windows.
+     * Windows may reject rename($temporary, $destination) when the destination
+     * already exists, so retain a backup and restore it if the replacement fails.
+     */
+    public static function replaceFile(string $temporary, string $destination): bool
+    {
+        if (!is_file($temporary) || !is_writable(dirname($destination))) {
+            return false;
+        }
+
+        if (!file_exists($destination) && !is_link($destination)) {
+            return @rename($temporary, $destination);
+        }
+
+        // POSIX rename is atomic and replaces an existing regular file.
+        if (PHP_OS_FAMILY !== 'Windows' && !is_link($destination)) {
+            return @rename($temporary, $destination);
+        }
+
+        $backup = $destination . '.installer-backup-' . bin2hex(random_bytes(6));
+
+        if (!@rename($destination, $backup)) {
+            return false;
+        }
+
+        if (@rename($temporary, $destination)) {
+            @unlink($backup);
+            return true;
+        }
+
+        // Do not leave the user's original file displaced if replacement fails.
+        if (!@rename($backup, $destination)) {
+            // Keep the backup rather than deleting the only remaining original.
+            return false;
+        }
+
+        return false;
+    }
+
     public static function removeTree(string $path): void
     {
         if (is_link($path) || is_file($path)) {
@@ -1084,7 +1174,7 @@ final class ConfigPatcher
             @chmod($temp, $permissions & 0777);
         }
 
-        if (!@rename($temp, $file)) {
+        if (!FileSystem::replaceFile($temp, $file)) {
             @unlink($temp);
             return false;
         }
@@ -1126,7 +1216,7 @@ final class ConfigPatcher
             @chmod($temp, $permissions & 0777);
         }
 
-        if (!@rename($temp, $file)) {
+        if (!FileSystem::replaceFile($temp, $file)) {
             @unlink($temp);
             return false;
         }
@@ -1467,7 +1557,7 @@ final class DatabaseConfigurator
             @chmod($temp, $permissions & 0777);
         }
 
-        if (!@rename($temp, $file)) {
+        if (!FileSystem::replaceFile($temp, $file)) {
             @unlink($temp);
             return false;
         }
@@ -1581,7 +1671,7 @@ final class PreflightStep extends BaseStep
 
     public function run(Context $context): void
     {
-        $issues = (new Preflight())->check();
+        $issues = (new Preflight())->check($context->expectedSha256 !== '');
 
         if ($issues !== []) {
             foreach ($issues as $issue) {
@@ -1673,6 +1763,14 @@ final class FetchStep extends BaseStep
             $context->gitUsed = true;
             $this->output->success('Framework cloned using Git.');
             return;
+        }
+
+        if (!class_exists(ZipArchive::class)) {
+            throw new InstallException(
+                'Git cloning was unavailable or failed, and PHP ZipArchive is not enabled. '
+                . 'Enable the PHP zip extension or install/configure Git, then try again.',
+                EXIT_PREFLIGHT
+            );
         }
 
         $this->output->info(
@@ -2055,7 +2153,7 @@ final class ConfigStep extends BaseStep
                     LOCK_EX
                 ) !== false
             ) {
-                @rename($temp, $context->configFile);
+                FileSystem::replaceFile($temp, $context->configFile);
             }
         }
 
@@ -2072,7 +2170,7 @@ final class ConfigStep extends BaseStep
                 $context->originalSiteOwnerConfig,
                 LOCK_EX
             ) !== false) {
-                @rename($temp, $siteOwnerFile);
+                FileSystem::replaceFile($temp, $siteOwnerFile);
             }
         }
     }
@@ -2182,7 +2280,7 @@ final class DatabaseStep extends BaseStep
                 $context->originalDatabaseConfig,
                 LOCK_EX
             ) !== false) {
-                @rename($temp, $context->databaseConfigFile);
+                FileSystem::replaceFile($temp, $context->databaseConfigFile);
             }
         }
 
@@ -2585,12 +2683,6 @@ PHP;
 }
 
 
-/**
- * Install the customized completion view supplied beside the CLI launcher.
- * This runs only after the framework download, placement and verification
- * steps have succeeded.
- */
-
 final class CompletionViewStep extends BaseStep
 {
     private bool $imagesInstalled = false;
@@ -2828,7 +2920,7 @@ final class CompletionViewStep extends BaseStep
             $context->originalCompleteView,
             LOCK_EX
         ) !== false) {
-            @rename($temp, $destinationView);
+            FileSystem::replaceFile($temp, $destinationView);
         }
     }
 }
@@ -2920,6 +3012,10 @@ final class Pipeline
 
 function isInteractiveTerminal(): bool
 {
+    if (!defined('STDIN')) {
+        return false;
+    }
+
     if (function_exists('stream_isatty')) {
         return @stream_isatty(STDIN);
     }
@@ -2958,15 +3054,18 @@ function showHelp(Output $output): int
     $output->line('Options:');
     $output->line('  --framework=trongate-on-ice');
     $output->line('  --framework=trongate@master --base-url=http://127.0.0.1:8000/');
+    $output->line('  --framework=<key>[@<ref>]  Select framework edition and optional branch/tag.');
     $output->line('  --base-url=<url>           Set BASE_URL (must end with /).');
     $output->line('  -n, --no-interaction       Use defaults and do not prompt.');
     $output->line('  -q, --quiet                Suppress informational output.');
     $output->line('  -v, --verbose              Enable additional diagnostic output.');
+    $output->line('      --sha256=<hash>        Verify the downloaded ZIP (requires PHP zip; disables Git).');
     $output->line('      --dry-run              Simulate without writing project files.');
     $output->line('      --list                 List available framework editions.');
     $output->line('  -h, --help                 Display this help.');
     $output->line();
     $output->line('The current directory must contain only cli/ and the trongate launcher.');
+    $output->line('Exit codes: 0 success, 1 general, 2 cancelled, 3 preflight, 4 network, 5 integrity, 6 filesystem.');
 
     return EXIT_OK;
 }
