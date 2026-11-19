@@ -339,14 +339,14 @@ final class ProjectValidator
         if (is_link($cliDirectory) || !is_dir($cliDirectory)) {
             throw new InstallException(
                 'Invalid installer location: the cli/ directory is missing or is a symbolic link.',
-                EXIT_PREFLIGHT
+                EXIT_SYSREQ
             );
         }
 
         if (is_link($launcher) || !is_file($launcher)) {
             throw new InstallException(
                 'Invalid installer location: the trongate launcher is missing or is a symbolic link.',
-                EXIT_PREFLIGHT
+                EXIT_SYSREQ
             );
         }
 
@@ -508,8 +508,7 @@ final class FrameworkRegistry
     }
 }
 
-final class Preflight
-{
+final class Sysreq{
     public function check(bool $requireZip = false): array
     {
         $issues = [];
@@ -1570,7 +1569,7 @@ final class DatabaseConfigurator
         if (!extension_loaded('pdo_mysql')) {
             throw new InstallException(
                 'The PDO MySQL extension is required to create the database.',
-                EXIT_PREFLIGHT
+                EXIT_SYSREQ
             );
         }
 
@@ -1655,8 +1654,8 @@ abstract class BaseStep implements Step
     {
     }
 }
-
-final class PreflightStep extends BaseStep
+// System Requirements
+final class SysreqStep extends BaseStep
 {
     public function __construct(
         private Output $output,
@@ -1666,23 +1665,23 @@ final class PreflightStep extends BaseStep
 
     public function label(): string
     {
-        return 'Preflight checks';
+        return 'System requirements checks';
     }
 
     public function run(Context $context): void
     {
-        $issues = (new Preflight())->check($context->expectedSha256 !== '');
+        $issues = (new Sysreq())->check($context->expectedSha256 !== '');
 
         if ($issues !== []) {
             foreach ($issues as $issue) {
                 $this->output->error($issue);
             }
 
-            $this->logger->log('Preflight failed: ' . implode(' | ', $issues));
+            $this->logger->log('System requirements failed: ' . implode(' | ', $issues));
 
             throw new InstallException(
-                'Preflight checks failed.',
-                EXIT_PREFLIGHT
+                'System Requirements Checks Failed.',
+                EXIT_SYSREQ
             );
         }
 
@@ -1690,7 +1689,7 @@ final class PreflightStep extends BaseStep
             'PHP ' . PHP_VERSION . ' and required capabilities detected.'
         );
 
-        $this->logger->log('Preflight passed.');
+        $this->logger->log('System Requirements passed.');
     }
 }
 
@@ -1769,7 +1768,7 @@ final class FetchStep extends BaseStep
             throw new InstallException(
                 'Git cloning was unavailable or failed, and PHP ZipArchive is not enabled. '
                 . 'Enable the PHP zip extension or install/configure Git, then try again.',
-                EXIT_PREFLIGHT
+                EXIT_SYSREQ
             );
         }
 
@@ -3065,7 +3064,7 @@ function showHelp(Output $output): int
     $output->line('  -h, --help                 Display this help.');
     $output->line();
     $output->line('The current directory must contain only cli/ and the trongate launcher.');
-    $output->line('Exit codes: 0 success, 1 general, 2 cancelled, 3 preflight, 4 network, 5 integrity, 6 filesystem.');
+    $output->line('Exit codes: 0 success, 1 general, 2 cancelled, 3 System requirements, 4 network, 5 integrity, 6 filesystem.');
 
     return EXIT_OK;
 }
@@ -3299,7 +3298,7 @@ function run(array $arguments): int
 
         $pipeline = new Pipeline(
             [
-                new PreflightStep($output, $logger),
+                new SysreqStep($output, $logger),
                 new NetworkStep($output, $logger, $downloader, $registry),
                 new FetchStep($output, $logger, $downloader, $registry),
                 new PlaceStep($output, $logger, new Extractor()),
