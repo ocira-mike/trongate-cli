@@ -2,6 +2,11 @@
 
 A lightweight command-line toolkit for [Trongateframework](https://trongateframework.com/) PHP projects. Scaffold modules, generate CRUD from your database schema, explore a guided learning path, and run a tuned development server — all from your terminal.
 
+<img width="1308" height="964" alt="complete_setup" src="https://github.com/user-attachments/assets/814fcd6e-f42b-4c9f-9a1f-8cca123eb48e" />
+
+
+
+
 ## Commands
 
 ```bash
