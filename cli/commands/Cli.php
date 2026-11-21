@@ -14,6 +14,7 @@ require_once __DIR__ . '/Info.php';
 require_once __DIR__ . '/Create.php';
 require_once __DIR__ . '/Learn.php';
 require_once __DIR__ . '/Check.php';
+require_once __DIR__ . '/Help.php';
 
 final class Cli
 {
@@ -25,6 +26,10 @@ final class Cli
      */
     public static function run(array $argv): int
     {
+        if (Help::handle($argv)) {
+            return 0;
+        }
+        
         $command   = $argv[1] ?? 'help';
         $arguments = array_slice($argv, 2);
 
@@ -62,12 +67,10 @@ final class Cli
                 echo 'Trongate CLI ' . Info::CLI_VERSION . PHP_EOL;
                 return 0;
 
-            case 'help':
             case '--help':
             case '-h':
-                Logo::render();
-                self::help();
-                return 0;
+                Help::render($argv[2] ?? null);
+                break;
         }
 
         // "php trongate create module blog" / "php trongate make module blog"
@@ -92,52 +95,4 @@ final class Cli
             "Unknown command: {$command}. Run 'php trongate help' to see available commands."
         );
     }
-
-    /**
-     * Display available commands.
-     */
-    private static function help(): void
-    {
-        echo <<<TXT
-
-Trongate PHP Development CLI
-
-Usage:
-  php trongate <command> [arguments] [options]
-
-Development:
-  serve [host] [port]         Start the development server
-  info                        Display project information
-  version                     Show the CLI version
-
-Generators (create <generator> ... or create:<generator> ...; make is an alias):
-  create:module <module>              Module controller + views/index
-  create:controller <module> <child>  Child module (modules/<module>/<child>/)
-  create:model <module> [<child>]     Model for a module or child module
-  create:view <module> <view>         View in a module (nested paths allowed)
-  create:crud <module>                CRUD scaffolding (admin-only by default)
-
-Options:
-  --dry-run                   Preview changes without writing files
-  --force                     Replace existing generated files
-  --public                    crud: also generate public index/show routes
-  --offline                   crud: allow generating without a database
-  --yes, -y                   Non-interactive (no prompts)
-
-General:
-  help, --help, -h            Show this help message
-
-Examples:
-  php trongate serve 127.0.0.1 8000
-  php trongate create:module blog
-  php trongate create:controller blog blog     # -> modules/blog/Blog.php
-  php trongate create:model blog blog
-  php trongate create:view blog posts/index
-  php trongate create:crud blog
-  php trongate create:crud blog --public
-  php trongate create:module blog --dry-run
-
-TXT;
-    }
 }
-
